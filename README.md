@@ -43,7 +43,7 @@ Certifique-se de ter o Java Development Kit (JDK) instalado em sua máquina.
 Abra o terminal na raiz do projeto e compile os arquivos Java:
 
 ```bash
-javac Emissor.java Receptor.java
+javac Issuer.java Receptor.java
 ```
 
 Execução
@@ -61,7 +61,7 @@ Exemplo (Porta 8080, 10% de perda ): `java Receptor 8080 0.1`
 **2. Iniciando o Emissor:**
 
 ```bash
-java Emissor <ip_destino> <porta_destino> <arquivo_origem> <tamanho_janela_N>
+java Issuer <ip_destino> <porta_destino> <arquivo_origem> <tamanho_janela_N>
 ```
 
 Exemplo (Janela de tamanho 5, arquivo de 1MB ): `java Emissor 127.0.0.1 8080 relatorio.pdf 5`
