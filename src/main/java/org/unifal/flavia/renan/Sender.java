@@ -86,6 +86,8 @@ public class Sender {
 
         DatagramPacket packet = new DatagramPacket(handshakeBuffer.array(), handshakeBuffer.array().length, ipDestino, portaDestino);
 
+        long tempoInicio = System.currentTimeMillis();
+
         // Enviando o Handshake 5 vezes para garantir que o Receptor receba e abra o arquivo
         for (int i = 0; i < 5; i++) {
             toReceiver.send(packet);
@@ -197,6 +199,16 @@ public class Sender {
         }
 
         System.out.println("Enviado sinal de FIM. Encerrando Emissor.");
+
+        // --- ADICIONE ESTE BLOCO AQUI ---
+        long tempoFim = System.currentTimeMillis(); // MARCA O FIM!
+        long tempoTotalMs = tempoFim - tempoInicio;
+        double tempoTotalSegundos = tempoTotalMs / 1000.0; // Converte para segundos
+
+        System.out.println("\n==================================================");
+        System.out.printf("TEMPO TOTAL DE TRANSFERÊNCIA: %.3f segundos\n", tempoTotalSegundos);
+        System.out.println("==================================================\n");
+        // -------------------------------
 
         // Desliga o timer global e fecha a conexão com o receptor
         timer.cancel();
