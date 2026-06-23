@@ -43,7 +43,7 @@ Certifique-se de ter o Java Development Kit (JDK) instalado em sua máquina.
 Abra o terminal na raiz do projeto e compile os arquivos Java:
 
 ```bash
-javac Issuer.java Receptor.java
+javac Sender.java Receiver.java
 ```
 
 Execução
@@ -53,25 +53,26 @@ O programa deve ser executado via linha de comando, passando os parâmetros nece
 **1. Iniciando o Receptor:**
 
 ```bash
-java Receptor <porta_local> <probabilidade_perda>
+java Receiver <porta_local> <probabilidade_perda>
 ```
 
-Exemplo (Porta 8080, 10% de perda ): `java Receptor 8080 0.1`
+Exemplo (Porta 8080, 10% de perda ): `java Receiver 8080 0.1`
 
 **2. Iniciando o Emissor:**
 
 ```bash
-java Issuer <ip_destino> <porta_destino> <arquivo_origem> <tamanho_janela_N>
+java Sender <ip_destino> <porta_destino> <arquivo_origem> <tamanho_janela_N>
 ```
 
-Exemplo (Janela de tamanho 5, arquivo de 1MB ): `java Emissor 127.0.0.1 8080 relatorio.pdf 5`
+Exemplo (Janela de tamanho 5, arquivo de 1MB ): `java Sender 127.0.0.1 8080 relatorio.pdf 5`
 
 📊 Estrutura do Projeto
 
-* `Emissor.java`: Lógica de envio de dados, controle de janela (buffer circular), temporizador e processamento de ACKs.
+* `Sender.java`: Lógica de envio de dados, controle de janela (buffer circular), temporizador e processamento de ACKs.
 
 
-* `Receptor.java`: Lógica de recebimento, verificação de número de sequência esperado, envio de ACKs cumulativos e simulação de perda.
+* `Receiver.java`: Lógica de recebimento, verificação de número de sequência esperado, envio de ACKs cumulativos e
+  simulação de perda.
 
 
 * `Relatorio_Tecnico.pdf`: Relatório detalhando decisões de projeto, testes realizados e análise do impacto da variação da janela *N* e probabilidades de erro no tempo de transferência.
