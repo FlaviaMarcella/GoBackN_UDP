@@ -16,8 +16,8 @@ public class Sender {
     static Timer timer = new Timer();
     static TimerTask timeoutTask;
 
-    // Método para iniciar/reiniciar o cronômetro
-    static void iniciarTimer(DatagramSocket socket, DatagramPacket[] janela, int N) {
+    // Método seguro para iniciar/reiniciar o cronômetro (com synchronized!)
+    static synchronized void iniciarTimer(DatagramSocket socket, DatagramPacket[] janela, int N) {
         if (timeoutTask != null) {
             timeoutTask.cancel(); // Cancela o cronômetro antigo
         }
@@ -39,6 +39,14 @@ public class Sender {
         };
         // Agenda para estourar em 1000 milissegundos (1 segundo)
         timer.schedule(timeoutTask, 1000);
+    }
+
+    // Método seguro para parar o cronômetro (com synchronized!)
+    static synchronized void pararTimer() {
+        if (timeoutTask != null) {
+            timeoutTask.cancel();
+            timeoutTask = null;
+        }
     }
 
     public static void main(String[] args) throws Exception {
@@ -116,10 +124,9 @@ public class Sender {
 
                             if (base == nextseqnum) {
                                 // Se todos os pacotes foram confirmados, cancela o cronômetro
-                                if (timeoutTask != null) {
-                                    timeoutTask.cancel();
-                                    System.out.println("Todos os pacotes confirmados. Cronômetro cancelado.");
-                                }
+                                pararTimer();
+                                System.out.println("Todos os pacotes confirmados. Cronômetro cancelado.");
+
                             } else {
                                 // Reinicia o cronômetro para o próximo pacote não confirmado
                                 iniciarTimer(toReceiver, janela, N);
