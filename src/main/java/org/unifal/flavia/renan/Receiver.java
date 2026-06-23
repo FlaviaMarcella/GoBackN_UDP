@@ -1,5 +1,6 @@
 package org.unifal.flavia.renan;
 
+import java.io.File;
 import java.io.FileOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -18,7 +19,7 @@ public class Receiver {
         }
 
         // Criamos o arquivo de saída no disco
-        FileOutputStream fos = new FileOutputStream("arquivo_recebido.dat");
+        FileOutputStream fos = null;
 
         // 1024 de payload + 11 de cabeçalho
         byte[] receiveData = new byte[1035];
@@ -51,6 +52,28 @@ public class Receiver {
                 expectedseqnum++;
                 System.out.println("Recebido pacote seq " + numSeq + " | Gravando " + tamanhoDados + " bytes");
 
+            } else if (tipo == 2) {
+                // TIPO 2 = HANDSHAKE
+                byte[] payload = new byte[tamanhoDados];
+                buffer.get(payload);
+                String handshakeInfo = new String(payload);
+
+                // Quebra a string "prob;nome;tamanho"
+                String[] parametros = handshakeInfo.split(";");
+                String nomeArquivoDestino = parametros[1]; // Pega o caminho completo
+
+                // --- NOVIDADE AQUI ---
+                // Transforma a string em um objeto File para podermos manipular as pastas
+                File fileDestino = new File(nomeArquivoDestino);
+
+                // Se o arquivo tiver uma pasta "pai" (ex: Recebido/), o Java cria a pasta no seu Windows!
+                if (fileDestino.getParentFile() != null) {
+                    fileDestino.getParentFile().mkdirs();
+                }
+
+                // Criamos o arquivo dentro da pasta certa!
+                fos = new FileOutputStream(fileDestino);
+                System.out.println("Handshake recebido! Criando arquivo em: " + fileDestino.getPath());
             } else if (tipo == 3) { // TIPO 3 = FIM
                 end = true;
                 System.out.println("Sinal de FIM recebido. Encerrando gravação!");

@@ -62,13 +62,18 @@ public class Sender {
 
         System.out.println("Emissor iniciado! Janela N=" + N + " | Prob. Perda=" + probPerda);
 
-        // 1. Pegando as informações do arquivo
+        // 1. Pegando as informações do arquivo original
         File arquivo = new File(arquivoOrigem);
         long tamanhoArquivo = arquivo.length();
         FileInputStream fis = new FileInputStream(arquivo);
 
-        // 2. Montando os dados úteis (payload) do Handshake
-        // Uma forma simples é juntar os dados numa String separada por ";" e converter para bytes
+        // 2. Fundindo a pasta destino com o nome do arquivo
+        // Se o usuário digitou uma pasta (terminada em /), nós adicionamos o nome do arquivo no final
+        if (pathDestino.endsWith("/") || pathDestino.endsWith("\\")) {
+            pathDestino = pathDestino + arquivo.getName();
+        }
+
+        // 3. Montando o payload do Handshake com o caminho novo (ex: Recebido/reuniao.txt)
         String handshakeInfo = probPerda + ";" + pathDestino + ";" + tamanhoArquivo;
         byte[] handshakePayload = handshakeInfo.getBytes();
 
@@ -80,7 +85,11 @@ public class Sender {
         handshakeBuffer.put(handshakePayload); // Dados úteis
 
         DatagramPacket packet = new DatagramPacket(handshakeBuffer.array(), handshakeBuffer.array().length, ipDestino, portaDestino);
-        toReceiver.send(packet);
+
+        // Enviando o Handshake 5 vezes para garantir que o Receptor receba e abra o arquivo
+        for (int i = 0; i < 5; i++) {
+            toReceiver.send(packet);
+        }
 
         System.out.println("Enviado Handshake com base=" + base + " e nextseqnum=" + nextseqnum);
         Runnable runnable = () -> {
@@ -117,7 +126,13 @@ public class Sender {
                     }
                 }
             } catch (Exception e) {
+                // Se o erro for apenas o socket fechando no final do programa, ignoramos em paz.
+                if (e instanceof java.net.SocketException) {
+                    System.out.println("Thread de recepção de ACKs encerrada.");
+                } else {
+                    // Se for um erro real, mostramos na tela.
                 e.printStackTrace();
+            }
             }
         };
 
