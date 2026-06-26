@@ -30,6 +30,8 @@ public class Receiver {
 
         while (!end) {
 
+            double probPerdaSessao = 0.0;
+
             // 1. Recebe o pacote do Emissor
             DatagramPacket packet = new DatagramPacket(receiveData, receiveData.length);
             socket.receive(packet);
@@ -60,9 +62,9 @@ public class Receiver {
 
                 // Quebra a string "prob;nome;tamanho"
                 String[] parametros = handshakeInfo.split(";");
+                probPerdaSessao = Double.parseDouble(parametros[0]);
                 String nomeArquivoDestino = parametros[1]; // Pega o caminho completo
 
-                // --- NOVIDADE AQUI ---
                 // Transforma a string em um objeto File para podermos manipular as pastas
                 File fileDestino = new File(nomeArquivoDestino);
 
@@ -98,7 +100,7 @@ public class Receiver {
             );
 
             // 6. Simulação de perda baseada no argumento args[1]
-            if (Math.random() >= Double.parseDouble(args[1])) {
+            if (Math.random() >= probPerdaSessao) {
                 socket.send(ackPacketToSend);
                 System.out.println("Enviado ACK para seq " + (expectedseqnum - 1));
             } else {
