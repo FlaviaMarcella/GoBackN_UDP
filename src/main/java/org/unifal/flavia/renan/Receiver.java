@@ -25,12 +25,16 @@ public class Receiver {
         byte[] receiveData = new byte[1035];
         int expectedseqnum = 0;
         boolean end = false;
+        boolean handshakeRecebido = false;
+
+        // Variáveis de controle para estatísticas e simulação
+        double probPerda = 0.0;
+        int totalPacotesRecebidos = 0;
+        int pacotesDescartados = 0;
 
         System.out.println("Receptor aguardando na porta " + args[0] + "...");
 
         while (!end) {
-
-            double probPerdaSessao = 0.0;
 
             // 1. Recebe o pacote do Emissor
             DatagramPacket packet = new DatagramPacket(receiveData, receiveData.length);
@@ -43,72 +47,74 @@ public class Receiver {
             int numAck = buffer.getInt();
             short tamanhoDados = buffer.getShort();
 
-            // 3. Processa os dados ou encerra a conexão
-            if (numSeq == expectedseqnum && tipo == 0) {
-                // Lemos EXATAMENTE a quantidade de dados úteis
-                byte[] payload = new byte[tamanhoDados];
-                buffer.get(payload);
+            // 3. Processa os dados ou encerra a conexão (Lógica de Handshake)
+            if (tipo == 2) {
+                if (!handshakeRecebido) {
+                    byte[] payload = new byte[tamanhoDados];
+                    buffer.get(payload);
+                    String handshakeInfo = new String(payload);
+                    String[] parametros = handshakeInfo.split(";");
 
-                // Gravamos direto no disco
-                fos.write(payload);
-                expectedseqnum++;
-                System.out.println("Recebido pacote seq " + numSeq + " | Gravando " + tamanhoDados + " bytes");
+                    System.out.println("Prob Perda: " + parametros[0]);
 
-            } else if (tipo == 2) {
-                // TIPO 2 = HANDSHAKE
-                byte[] payload = new byte[tamanhoDados];
-                buffer.get(payload);
-                String handshakeInfo = new String(payload);
+                    probPerda = Double.parseDouble(parametros[0]); // Atualiza prob com o que veio do Sender
+                    String nomeArquivoDestino = parametros[1];
 
-                // Quebra a string "prob;nome;tamanho"
-                String[] parametros = handshakeInfo.split(";");
-                probPerdaSessao = Double.parseDouble(parametros[0]);
-                String nomeArquivoDestino = parametros[1]; // Pega o caminho completo
+                    File fileDestino = new File(nomeArquivoDestino);
+                    if (fileDestino.getParentFile() != null) fileDestino.getParentFile().mkdirs();
+                    fos = new FileOutputStream(fileDestino);
 
-                // Transforma a string em um objeto File para podermos manipular as pastas
-                File fileDestino = new File(nomeArquivoDestino);
+                    handshakeRecebido = true;
+                    System.out.println("Handshake recebido! Prob: " + probPerda + " | Arquivo: " + nomeArquivoDestino);
+                }
+            }
+            // Lógica de Dados com Simulação de Perda
+            else if (tipo == 0) {
+                totalPacotesRecebidos++;
 
-                // Se o arquivo tiver uma pasta "pai" (ex: Recebido/), o Java cria a pasta no seu Windows!
-                if (fileDestino.getParentFile() != null) {
-                    fileDestino.getParentFile().mkdirs();
+                // Simulação de perda antes de qualquer processamento
+                if (Math.random() < probPerda) {
+                    pacotesDescartados++;
+                    System.out.println("[SIMULAÇÃO] Pacote " + numSeq + " descartado silenciosamente!");
+                    continue; // Descarta e volta para o início do loop sem enviar ACK
                 }
 
-                // Criamos o arquivo dentro da pasta certa!
-                fos = new FileOutputStream(fileDestino);
-                System.out.println("Handshake recebido! Criando arquivo em: " + fileDestino.getPath());
-            } else if (tipo == 3) { // TIPO 3 = FIM
+                if (numSeq == expectedseqnum) {
+                    byte[] payload = new byte[tamanhoDados];
+                    buffer.get(payload);
+                    fos.write(payload);
+                    expectedseqnum++;
+                    System.out.println("Recebido seq " + numSeq + " | Gravado.");
+                } else {
+                    System.out.println("Pacote " + numSeq + " fora de ordem. Esperado: " + expectedseqnum);
+                }
+
+                // Envio de ACK cumulativo
+                ByteBuffer ackBuffer = ByteBuffer.allocate(11);
+                ackBuffer.put((byte) 1);
+                ackBuffer.putInt(0);
+                ackBuffer.putInt(expectedseqnum - 1);
+                ackBuffer.putShort((short) 0);
+
+                byte[] ackData = ackBuffer.array();
+                DatagramPacket ackPacket = new DatagramPacket(ackData, ackData.length, packet.getAddress(), packet.getPort());
+                socket.send(ackPacket);
+            } else if (tipo == 3) {
                 end = true;
-                System.out.println("Sinal de FIM recebido. Encerrando gravação!");
-            } else {
-                System.out.println("Pacote descartado! (Fora de ordem ou duplicado)");
-            }
-
-            // 4. Montando o buffer do ACK de resposta
-            ByteBuffer ackBuffer = ByteBuffer.allocate(11);
-            ackBuffer.put((byte) 1);              // TIPO 1 = ACK
-            ackBuffer.putInt(0);                  // num_seq (não utilizado)
-            ackBuffer.putInt(expectedseqnum - 1); // num_ack = o pacote que estamos confirmando
-            ackBuffer.putShort((short) 0);        // tamanho_dados = 0
-
-            // 5. Extraindo os bytes e criando o DatagramPacket de resposta
-            byte[] ackData = ackBuffer.array();
-            DatagramPacket ackPacketToSend = new DatagramPacket(
-                    ackData,
-                    ackData.length,
-                    packet.getAddress(), // Devolvemos para o IP de onde veio o pacote
-                    packet.getPort()     // Devolvemos para a porta de onde veio o pacote
-            );
-
-            // 6. Simulação de perda baseada no argumento args[1]
-            if (Math.random() >= probPerdaSessao) {
-                socket.send(ackPacketToSend);
-                System.out.println("Enviado ACK para seq " + (expectedseqnum - 1));
-            } else {
-                System.out.println("[SIMULAÇÃO] ACK " + (expectedseqnum - 1) + " perdido de propósito!");
+                System.out.println("Sinal de FIM recebido.");
             }
         }
 
         fos.close();
-        System.out.println("-------------- TRANSFERÊNCIA CONCLUÍDA ----------------");
+
+        // Exibição de Estatísticas (R6)
+        System.out.println("\n================ ESTATÍSTICAS DO RECEPTOR ================");
+        System.out.println("Total de pacotes de dados processados: " + totalPacotesRecebidos);
+        System.out.println("Total de pacotes descartados: " + pacotesDescartados);
+        if (totalPacotesRecebidos > 0) {
+            double taxaPerda = (double) pacotesDescartados / totalPacotesRecebidos;
+            System.out.printf("Taxa de perda efetiva: %.2f%%\n", taxaPerda * 100);
+        }
+        System.out.println("==========================================================");
     }
 }

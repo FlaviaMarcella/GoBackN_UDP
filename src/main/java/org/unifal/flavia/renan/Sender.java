@@ -13,10 +13,13 @@ public class Sender {
 
     static volatile int base = 0;  // Número de sequência do pacote mais antigo não confirmado
     static volatile int nextseqnum = 0; // Próximo número de sequência a ser usado
+    static int totalPacotesEnviados = 0;
+    static int totalRetransmissoes = 0;
+
     static Timer timer = new Timer();
     static TimerTask timeoutTask;
 
-    // Método seguro para iniciar/reiniciar o cronômetro (com synchronized!)
+    // Método para iniciar/reiniciar o cronômetro (com synchronized!)
     static synchronized void iniciarTimer(DatagramSocket socket, DatagramPacket[] janela, int N) {
         if (timeoutTask != null) {
             timeoutTask.cancel(); // Cancela o cronômetro antigo
@@ -26,6 +29,7 @@ public class Sender {
             @Override
             public void run() {
                 // Se estourar o tempo, retransmite tudo que não foi confirmado!
+                totalRetransmissoes++;
                 System.out.println("TIMEOUT! Retransmitindo da base " + base + " até " + (nextseqnum - 1));
                 for (int i = base; i < nextseqnum; i++) {
                     try {
@@ -37,11 +41,11 @@ public class Sender {
                 }
             }
         };
-        // Agenda para estourar em 1000 milissegundos (1 segundo)
-        timer.schedule(timeoutTask, 1000);
+        // Agenda para estourar em 100 milissegundos (0.1 segundo)
+        timer.schedule(timeoutTask, 100, 100);
     }
 
-    // Método seguro para parar o cronômetro (com synchronized!)
+    // Método para parar o cronômetro (com synchronized!)
     static synchronized void pararTimer() {
         if (timeoutTask != null) {
             timeoutTask.cancel();
@@ -64,7 +68,7 @@ public class Sender {
 
         DatagramSocket toReceiver = new DatagramSocket();
 
-        // 3. O nosso Buffer Circular da Janela [cite: 24]
+        // 3. O Buffer Circular da Janela
         // Um array simples que vai guardar os pacotes enviados e aguardando ACK
         DatagramPacket[] janela = new DatagramPacket[N];
 
@@ -102,6 +106,8 @@ public class Sender {
         }
 
         System.out.println("Enviado Handshake com base=" + base + " e nextseqnum=" + nextseqnum);
+
+        //Thread recebedora de ACKs
         Runnable runnable = () -> {
             try {
                 // 3. Loop para receber os ACKs do receptor
@@ -153,9 +159,14 @@ public class Sender {
 
         while ((bytesRead = fis.read(payload)) != -1) {
 
+            boolean avisouJanela = false; //Controle para não gerar mensagens excessivas no terminal
+
             // 1. ESPERAR SE A JANELA ESTIVER CHEIA (Trocado para while!)
             while (nextseqnum >= base + N) {
-                System.out.println("Janela cheia! Aguardando ACKs...");
+                if (!avisouJanela) {
+                    System.out.println("Janela cheia! Aguardando ACKs...");
+                    avisouJanela = true;
+                }
                 Thread.sleep(10);
             }
 
@@ -170,6 +181,7 @@ public class Sender {
             // 3. ENVIAR PARA O RECEPTOR E SALVAR NO BUFFER CIRCULAR
             DatagramPacket dataPacket = new DatagramPacket(buffer.array(), buffer.array().length, ipDestino, portaDestino);
             toReceiver.send(dataPacket);
+            totalPacotesEnviados++;
 
             // Salva na posição correta do círculo
             janela[nextseqnum % N] = dataPacket;
@@ -207,15 +219,15 @@ public class Sender {
 
         System.out.println("Enviado sinal de FIM. Encerrando Emissor.");
 
-        // --- ADICIONE ESTE BLOCO AQUI ---
         long tempoFim = System.currentTimeMillis(); // MARCA O FIM!
         long tempoTotalMs = tempoFim - tempoInicio;
         double tempoTotalSegundos = tempoTotalMs / 1000.0; // Converte para segundos
 
-        System.out.println("\n==================================================");
+        System.out.println("\n================ ESTATÍSTICAS DO EMISSOR ================");
+        System.out.println("Total de pacotes originais enviados fisicamente: " + totalPacotesEnviados);
+        System.out.println("Total de baterias de retransmissões (Timeouts): " + totalRetransmissoes);
         System.out.printf("TEMPO TOTAL DE TRANSFERÊNCIA: %.3f segundos\n", tempoTotalSegundos);
-        System.out.println("==================================================\n");
-        // -------------------------------
+        System.out.println("=========================================================\n");
 
         // Desliga o timer global e fecha a conexão com o receptor
         timer.cancel();
