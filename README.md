@@ -83,23 +83,6 @@ java org.unifal.flavia.renan.Sender <arquivo_origem> <ip_destino>:<diretorio_des
   perda de rede.
 * `Relatorio_Tecnico.pdf`: Relatório detalhando decisões de projeto, testes realizados e análise do impacto da variação da janela *N* e probabilidades de erro no tempo de transferência.
 
-## 🔧 Revisão pós-avaliação
-
-Após revisão do professor, os seguintes ajustes foram aplicados ao código original:
-
-* **Simulação de perda (Seção 4 do enunciado):** o sorteio de perda no Receptor agora só ocorre
-  para pacotes recebidos **em ordem**. Pacotes fora de ordem/duplicados são contabilizados à parte
-  e não entram mais na taxa de perda simulada.
-* **Sincronização do buffer circular:** as leituras (retransmissão por timeout) e escritas (novo
-  pacote enviado) do array `janela[]` no Emissor agora usam um lock dedicado (`janelaLock`),
-  eliminando a condição de corrida entre a thread principal e a thread do `Timer`.
-* **Throughput em tempo real:** Emissor e Receptor agora exibem o throughput estimado (KB/s)
-  durante a transferência e no resumo final, conforme pedido na Seção 3.3 do enunciado.
-* **Uso do campo `tamanho_arquivo`:** o Receptor agora usa o tamanho do arquivo enviado no
-  handshake para exibir o progresso percentual da transferência.
-* Correções de comentários incoerentes e remoção de mensagem de log duplicada.
-* README atualizado para refletir os argumentos reais aceitos pelo Receptor.
-
 ## 👩‍💻 Autoria
 
 * **Flávia Marcella Gonçalves Moreira** - Bacharelado em Ciência da Computação (ICEx)
