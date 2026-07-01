@@ -15,10 +15,18 @@ public class Sender {
     static volatile int base = 0;  // Número de sequência do pacote mais antigo não confirmado
     static volatile int nextseqnum = 0; // Próximo número de sequência a ser usado
     static int totalPacotesEnviados = 0;
-    static int totalRetransmissoes = 0;
+    // Lock dedicado exclusivamente à proteção do buffer circular "janela".
+    // Ele é escrito pela thread principal (ao enviar novos pacotes) e lido
+    // pela thread do Timer (ao retransmitir em caso de timeout), portanto
+    // precisa de sincronização própria - independente do lock usado para
+    // iniciar/parar o timer.
+    static final Object janelaLock = new Object();
+    static int totalEventosTimeout = 0;      // Quantas vezes o timer estourou
+    static int totalPacotesRetransmitidos = 0; // Quantos pacotes individuais foram reenviados
 
     static Timer timer = new Timer();
     static TimerTask timeoutTask;
+    static long totalBytesEnviados = 0; // Para cálculo de throughput (inclui retransmissões físicas)
 
     // Método para iniciar/reiniciar o cronômetro (com synchronized!)
     static synchronized void iniciarTimer(DatagramSocket socket, DatagramPacket[] janela, int N) {
@@ -30,14 +38,24 @@ public class Sender {
             @Override
             public void run() {
                 // Se estourar o tempo, retransmite tudo que não foi confirmado!
-                totalRetransmissoes++;
+                totalEventosTimeout++;
                 System.out.println("TIMEOUT! Retransmitindo da base " + base + " até " + (nextseqnum - 1));
-                for (int i = base; i < nextseqnum; i++) {
-                    try {
-                        socket.send(janela[i % N]);
-                        System.out.println("Retransmitido pacote seq " + i);
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                // Acessa o buffer circular sob o mesmo lock usado na escrita,
+                // garantindo visibilidade correta entre a thread principal
+                // (que grava pacotes novos em janela[]) e esta thread do Timer.
+                synchronized (janelaLock) {
+                    for (int i = base; i < nextseqnum; i++) {
+                        try {
+                            DatagramPacket pacoteParaReenviar = janela[i % N];
+                            if (pacoteParaReenviar != null) {
+                                socket.send(pacoteParaReenviar);
+                                totalPacotesRetransmitidos++;
+                                totalBytesEnviados += pacoteParaReenviar.getLength();
+                                System.out.println("Retransmitido pacote seq " + i);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
                 }
             }
@@ -95,7 +113,7 @@ public class Sender {
         byte[] handshakePayload = handshakeInfo.getBytes();
 
         ByteBuffer handshakeBuffer = ByteBuffer.allocate(11 + handshakePayload.length);
-        handshakeBuffer.put((byte) 2); // Tipo 0 = DADOS
+        handshakeBuffer.put((byte) 2); // Tipo 2 = HANDSHAKE
         handshakeBuffer.putInt(-1); // Número de sequência
         handshakeBuffer.putInt(0); // Número de ACK (não utilizado)
         handshakeBuffer.putShort((short) handshakePayload.length); // Tamanho dos dados
@@ -151,8 +169,8 @@ public class Sender {
                     System.out.println("Thread de recepção de ACKs encerrada.");
                 } else {
                     // Se for um erro real, mostramos na tela.
-                e.printStackTrace();
-            }
+                    e.printStackTrace();
+                }
             }
         };
 
@@ -187,10 +205,14 @@ public class Sender {
             DatagramPacket dataPacket = new DatagramPacket(buffer.array(), buffer.array().length, ipDestino, portaDestino);
             toReceiver.send(dataPacket);
             totalPacotesEnviados++;
+            totalBytesEnviados += dataPacket.getLength();
 
-            // Salva na posição correta do círculo
-            janela[nextseqnum % N] = dataPacket;
-            System.out.println("Enviado pacote seq " + nextseqnum);
+            // Salva na posição correta do círculo, protegido pelo lock,
+            // pois a thread do Timer pode ler este array concorrentemente
+            // em caso de timeout.
+            synchronized (janelaLock) {
+                janela[nextseqnum % N] = dataPacket;
+            }
 
             if (base == nextseqnum) {
                 iniciarTimer(toReceiver, janela, N);
@@ -198,6 +220,15 @@ public class Sender {
 
             // 4. INCREMENTAR O nextseqnum
             nextseqnum++;
+
+            // Progresso em tempo real: pacotes enviados, ACKs confirmados (base)
+            // e throughput estimado (KB/s) desde o início da transferência.
+            double segundosDecorridos = (System.currentTimeMillis() - tempoInicio) / 1000.0;
+            double throughputKBps = segundosDecorridos > 0
+                    ? (totalBytesEnviados / 1024.0) / segundosDecorridos
+                    : 0.0;
+            System.out.printf("Enviado pacote seq %d | base=%d | pacotes enviados=%d | throughput=%.2f KB/s%n",
+                    nextseqnum - 1, base, totalPacotesEnviados, throughputKBps);
         }
         fis.close();
 
@@ -228,9 +259,18 @@ public class Sender {
         long tempoTotalMs = tempoFim - tempoInicio;
         double tempoTotalSegundos = tempoTotalMs / 1000.0; // Converte para segundos
 
+        double throughputMedioKBps = tempoTotalSegundos > 0
+                ? (totalBytesEnviados / 1024.0) / tempoTotalSegundos
+                : 0.0;
+
         System.out.println("\n================ ESTATÍSTICAS DO EMISSOR ================");
-        System.out.println("Total de pacotes originais enviados fisicamente: " + totalPacotesEnviados);
-        System.out.println("Total de baterias de retransmissões (Timeouts): " + totalRetransmissoes);
+        System.out.println("Total de pacotes de dados originais (segmentos do arquivo): " + totalPacotesEnviados);
+        System.out.println("Total de eventos de timeout (baterias de retransmissão): " + totalEventosTimeout);
+        System.out.println("Total de pacotes individuais retransmitidos: " + totalPacotesRetransmitidos);
+        System.out.println("Total de pacotes enviados fisicamente (originais + retransmitidos): "
+                + (totalPacotesEnviados + totalPacotesRetransmitidos));
+        System.out.println("Total de bytes de dados transmitidos fisicamente: " + totalBytesEnviados);
+        System.out.printf("Throughput médio efetivo: %.2f KB/s%n", throughputMedioKBps);
         System.out.printf("TEMPO TOTAL DE TRANSFERÊNCIA: %.3f segundos\n", tempoTotalSegundos);
         System.out.println("=========================================================\n");
 
