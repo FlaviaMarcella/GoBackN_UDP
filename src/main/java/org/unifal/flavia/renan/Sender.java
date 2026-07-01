@@ -6,6 +6,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -79,6 +80,10 @@ public class Sender {
         long tamanhoArquivo = arquivo.length();
         FileInputStream fis = new FileInputStream(arquivo);
 
+        // Calculo do hash MD5 do arquivo
+        String md5Hash = calculateMD5(arquivo);
+        System.out.println("MD5 do arquivo original: " + md5Hash);
+
         // 2. Fundindo a pasta destino com o nome do arquivo
         // Se o usuário digitou uma pasta (terminada em /), nós adicionamos o nome do arquivo no final
         if (pathDestino.endsWith("/") || pathDestino.endsWith("\\")) {
@@ -86,7 +91,7 @@ public class Sender {
         }
 
         // 3. Montando o payload do Handshake com o caminho novo (ex: Recebido/reuniao.txt)
-        String handshakeInfo = probPerda + ";" + pathDestino + ";" + tamanhoArquivo;
+        String handshakeInfo = probPerda + ";" + pathDestino + ";" + tamanhoArquivo + ";" + md5Hash;
         byte[] handshakePayload = handshakeInfo.getBytes();
 
         ByteBuffer handshakeBuffer = ByteBuffer.allocate(11 + handshakePayload.length);
@@ -233,6 +238,27 @@ public class Sender {
         timer.cancel();
         toReceiver.close();
         System.exit(0); // Encerra o programa, forçando a tread de ACK a terminar também
+    }
+
+    private static String calculateMD5(File file) throws Exception {
+        MessageDigest md5Digest = MessageDigest.getInstance("MD5");
+        FileInputStream fis = new FileInputStream(file);
+
+        byte[] byteArray = new byte[1024];
+        int bytesCount = 0;
+
+        while ((bytesCount = fis.read(byteArray)) != -1) {
+            md5Digest.update(byteArray, 0, bytesCount);
+        }
+        fis.close();
+
+        byte[] bytes = md5Digest.digest();
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < bytes.length; i++) {
+            sb.append(Integer.toString((bytes[i] & 0xff) + 0x100, 16).substring(1));
+        }
+        return sb.toString();
     }
 
 }
