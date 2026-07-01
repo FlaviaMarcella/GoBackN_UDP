@@ -54,10 +54,14 @@ transferências limpas e valores como `0.1` (10%) para visualizar o Go-Back-N re
 **Terminal 1 (Iniciando o Receptor):**
 
 ```bash
-java org.unifal.flavia.renan.Receiver <porta_local> <probabilidade_perda>
+java org.unifal.flavia.renan.Receiver <porta_local>
 ```
 
-> **Exemplo:** `java org.unifal.flavia.renan.Receiver 5000 0.1`
+> **Exemplo:** `java org.unifal.flavia.renan.Receiver 5000`
+>
+> **Observação:** o Receptor recebe apenas a porta em que deve escutar. A probabilidade de perda,
+> o caminho de destino do arquivo e o tamanho/hash do arquivo são enviados pelo **Emissor** no
+> pacote de *handshake* inicial (tipo 2), e não via linha de comando do Receptor.
 
 **Terminal 2 (Iniciando o Emissor):**
 
@@ -78,6 +82,23 @@ java org.unifal.flavia.renan.Sender <arquivo_origem> <ip_destino>:<diretorio_des
   diretórios, gravação em disco (`FileOutputStream`), verificação de sequência, envio de ACKs cumulativos e simulação de
   perda de rede.
 * `Relatorio_Tecnico.pdf`: Relatório detalhando decisões de projeto, testes realizados e análise do impacto da variação da janela *N* e probabilidades de erro no tempo de transferência.
+
+## 🔧 Revisão pós-avaliação
+
+Após revisão do professor, os seguintes ajustes foram aplicados ao código original:
+
+* **Simulação de perda (Seção 4 do enunciado):** o sorteio de perda no Receptor agora só ocorre
+  para pacotes recebidos **em ordem**. Pacotes fora de ordem/duplicados são contabilizados à parte
+  e não entram mais na taxa de perda simulada.
+* **Sincronização do buffer circular:** as leituras (retransmissão por timeout) e escritas (novo
+  pacote enviado) do array `janela[]` no Emissor agora usam um lock dedicado (`janelaLock`),
+  eliminando a condição de corrida entre a thread principal e a thread do `Timer`.
+* **Throughput em tempo real:** Emissor e Receptor agora exibem o throughput estimado (KB/s)
+  durante a transferência e no resumo final, conforme pedido na Seção 3.3 do enunciado.
+* **Uso do campo `tamanho_arquivo`:** o Receptor agora usa o tamanho do arquivo enviado no
+  handshake para exibir o progresso percentual da transferência.
+* Correções de comentários incoerentes e remoção de mensagem de log duplicada.
+* README atualizado para refletir os argumentos reais aceitos pelo Receptor.
 
 ## 👩‍💻 Autoria
 
