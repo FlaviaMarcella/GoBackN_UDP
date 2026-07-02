@@ -15,18 +15,19 @@ public class Sender {
     static volatile int base = 0;  // Número de sequência do pacote mais antigo não confirmado
     static volatile int nextseqnum = 0; // Próximo número de sequência a ser usado
     static int totalPacotesEnviados = 0;
+    static int totalEventosTimeout = 0;      // Quantas vezes o timer estourou
+    static int totalPacotesRetransmitidos = 0; // Quantos pacotes individuais foram reenviados
+    static long totalBytesEnviados = 0; // Para cálculo de throughput (inclui retransmissões físicas)
+
+    static Timer timer = new Timer();
+    static TimerTask timeoutTask;
+
     // Lock dedicado exclusivamente à proteção do buffer circular "janela".
     // Ele é escrito pela thread principal (ao enviar novos pacotes) e lido
     // pela thread do Timer (ao retransmitir em caso de timeout), portanto
     // precisa de sincronização própria - independente do lock usado para
     // iniciar/parar o timer.
     static final Object janelaLock = new Object();
-    static int totalEventosTimeout = 0;      // Quantas vezes o timer estourou
-    static int totalPacotesRetransmitidos = 0; // Quantos pacotes individuais foram reenviados
-
-    static Timer timer = new Timer();
-    static TimerTask timeoutTask;
-    static long totalBytesEnviados = 0; // Para cálculo de throughput (inclui retransmissões físicas)
 
     // Método para iniciar/reiniciar o cronômetro (com synchronized!)
     static synchronized void iniciarTimer(DatagramSocket socket, DatagramPacket[] janela, int N) {
@@ -123,9 +124,60 @@ public class Sender {
 
         long tempoInicio = System.currentTimeMillis();
 
-        // Enviando o Handshake 5 vezes para garantir que o Receptor receba e abra o arquivo
-        for (int i = 0; i < 5; i++) {
+        // Handshake confiável: em vez de simplesmente mandar 5 vezes e torcer
+        // para que uma chegue, o Emissor agora espera uma confirmação (ACK
+        // com num_ack = -1, por convenção) do Receptor, com timeout, e
+        // retransmite o handshake até um número máximo de tentativas. Isso
+        // evita dois problemas do design anterior: (1) o Receptor podia
+        // nunca abrir o arquivo e o Emissor não teria como saber; (2) o
+        // Emissor podia ficar retransmitindo dados para sempre sem que o
+        // Receptor jamais estivesse pronto para recebê-los.
+        boolean handshakeConfirmado = false;
+        int tentativasHandshake = 0;
+        final int MAX_TENTATIVAS_HANDSHAKE = 5;
+        final int TIMEOUT_HANDSHAKE_MS = 300;
+
+        toReceiver.setSoTimeout(TIMEOUT_HANDSHAKE_MS);
+
+        while (!handshakeConfirmado && tentativasHandshake < MAX_TENTATIVAS_HANDSHAKE) {
             toReceiver.send(packet);
+            tentativasHandshake++;
+            System.out.println("Handshake enviado (tentativa " + tentativasHandshake + "/" + MAX_TENTATIVAS_HANDSHAKE + ")");
+
+            try {
+                byte[] respBuffer = new byte[11];
+                DatagramPacket resp = new DatagramPacket(respBuffer, respBuffer.length);
+                toReceiver.receive(resp); // bloqueia no máximo TIMEOUT_HANDSHAKE_MS
+
+                ByteBuffer respByteBuffer = ByteBuffer.wrap(resp.getData());
+                byte tipoResp = respByteBuffer.get();
+                respByteBuffer.getInt(); // num_seq da resposta, não utilizado aqui
+                int numAckResp = respByteBuffer.getInt();
+
+                if (tipoResp == 1 && numAckResp == -1) {
+                    handshakeConfirmado = true;
+                    System.out.println("Handshake confirmado pelo Receptor!");
+                }
+                // Se chegar qualquer outra coisa (ex.: ACK de dados de uma
+                // tentativa anterior perdida no tempo), simplesmente ignora
+                // e continua esperando pela confirmação de handshake.
+            } catch (java.net.SocketTimeoutException e) {
+                System.out.println("Timeout aguardando confirmação do handshake...");
+            }
+        }
+
+        // Volta o socket ao modo bloqueante normal (sem timeout) para o
+        // restante da transferência, onde quem controla o tempo de espera
+        // por ACKs é o java.util.Timer, não o próprio socket.
+        toReceiver.setSoTimeout(0);
+
+        if (!handshakeConfirmado) {
+            System.out.println("ERRO: não foi possível estabelecer handshake com o Receptor após "
+                    + MAX_TENTATIVAS_HANDSHAKE + " tentativas. Verifique se o Receptor está em execução "
+                    + "e se o IP/porta de destino estão corretos. Encerrando Emissor.");
+            fis.close();
+            toReceiver.close();
+            System.exit(1);
         }
 
         System.out.println("Enviado Handshake com base=" + base + " e nextseqnum=" + nextseqnum);

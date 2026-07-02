@@ -92,9 +92,26 @@ public class Receiver {
                             + " | Tamanho esperado: " + (tamanhoArquivoEsperado >= 0 ? tamanhoArquivoEsperado + " bytes" : "desconhecido")
                             + " | Hash recebido: " + (expectedMd5.isEmpty() ? "(nenhum)" : expectedMd5));
                 }
+
+                // Responde ao handshake com um ACK dedicado (num_ack = -1, por convenção).
+                // Isso é feito TODA vez que um pacote de handshake chega -- mesmo que já
+                // tenha sido processado antes -- pois se o Emissor está retransmitindo o
+                // handshake, é porque a confirmação anterior provavelmente se perdeu.
+                enviarAck(socket, packet, -1);
             }
             // Lógica de Dados com Simulação de Perda
             else if (tipo == 0) {
+
+                // Protege contra pacotes de dados que cheguem antes do handshake
+                // ter sido processado (ex.: pacotes que chegaram fora de ordem em
+                // relação ao handshake, ou uma condição de corrida no início da
+                // transferência). Sem essa checagem, "fos" ainda seria null e
+                // fos.write(payload) geraria um NullPointerException, derrubando
+                // o Receptor.
+                if (!handshakeRecebido) {
+                    System.out.println("Pacote de dados (seq " + numSeq + ") recebido antes do handshake — ignorado.");
+                    continue;
+                }
 
                 // IMPORTANTE (Seção 4 do enunciado): a simulação de perda deve
                 // atuar SOMENTE sobre pacotes recebidos corretamente EM ORDEM.
